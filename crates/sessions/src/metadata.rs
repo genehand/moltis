@@ -425,6 +425,12 @@ impl SqliteSessionMetadata {
         key: &str,
         label: Option<String>,
     ) -> std::result::Result<SessionEntry, sqlx::Error> {
+        // Skip if session exists and we have no label to set
+        if label.is_none() {
+            if let Some(entry) = self.get(key).await {
+                return Ok(entry);
+            }
+        }
         let now = now_ms() as i64;
         let id = uuid::Uuid::new_v4().to_string();
         sqlx::query(
