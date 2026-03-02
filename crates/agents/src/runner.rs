@@ -1297,7 +1297,6 @@ pub async fn run_agent_loop_streaming(
                                     }
                                 }
                             }
-                            debug!(chunks = arr.len(), merged_count = reasoning_details_map.len(), "accumulated reasoning_details");
                         }
                     }
                 },
@@ -1619,7 +1618,6 @@ pub async fn run_agent_loop_streaming(
         } else {
             None
         };
-        debug!(has_reasoning = reasoning.is_some(), "appending assistant message with reasoning");
         messages.push(ChatMessage::assistant_with_tools(
             text_for_msg,
             tool_calls.clone(),
