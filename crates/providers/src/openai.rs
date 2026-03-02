@@ -255,7 +255,7 @@ fn base_openai_tool_call_id(raw: &str) -> String {
     let mut cleaned: String = raw
         .chars()
         .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-') {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | ':') {
                 ch
             } else {
                 '_'
@@ -557,7 +557,7 @@ impl OpenAiProvider {
                     let reasoning_content = value
                         .get("content")
                         .and_then(serde_json::Value::as_str)
-                        .unwrap_or("")
+                        .unwrap_or(".")
                         .to_string();
 
                     if value.get("content").is_none() {
