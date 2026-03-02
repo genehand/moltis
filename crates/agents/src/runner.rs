@@ -12,7 +12,7 @@ use moltis_common::hooks::{HookAction, HookPayload, HookRegistry};
 
 use crate::{
     model::{
-        ChatMessage, CompletionResponse, LlmProvider, StreamEvent, ToolCall, Usage, UserContent,
+        ChatMessage, CompletionResponse, LlmProvider, Reasoning, StreamEvent, ToolCall, Usage, UserContent,
     },
     response_sanitizer::{clean_response, recover_tool_calls_from_content},
     tool_parsing::{
@@ -1248,6 +1248,7 @@ pub async fn run_agent_loop_streaming(
         // Accumulate answer text, reasoning text, and tool calls from the stream.
         let mut accumulated_text = String::new();
         let mut accumulated_reasoning = String::new();
+        let mut reasoning_details_map: std::collections::HashMap<usize, serde_json::Map<String, serde_json::Value>> = std::collections::HashMap::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
         // Map streaming index → accumulated JSON args string.
         let mut tool_call_args: std::collections::HashMap<usize, String> =
@@ -1272,7 +1273,32 @@ pub async fn run_agent_loop_streaming(
                 },
                 StreamEvent::ProviderRaw(raw) => {
                     if raw_llm_responses.len() < 256 {
-                        raw_llm_responses.push(raw);
+                        raw_llm_responses.push(raw.clone());
+                    }
+                    if let Some(delta_details) = raw["choices"][0]["delta"].get("reasoning_details") {
+                        if let Some(arr) = delta_details.as_array() {
+                            for item in arr {
+                                if let Some(obj) = item.as_object() {
+                                    if let Some(index) = obj.get("index").and_then(|v| v.as_u64()).map(|v| v as usize) {
+                                        let entry = reasoning_details_map.entry(index).or_insert_with(|| {
+                                            let mut new_obj = serde_json::Map::new();
+                                            // Copy non-text fields from first occurrence
+                                            for (key, value) in obj.iter() {
+                                                if key != "text" {
+                                                    new_obj.insert(key.clone(), value.clone());
+                                                }
+                                            }
+                                            new_obj
+                                        });
+                                        if let Some(text) = obj.get("text").and_then(|v| v.as_str()) {
+                                            let current = entry.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                                            entry.insert("text".to_string(), serde_json::Value::String(current.to_string() + text));
+                                        }
+                                    }
+                                }
+                            }
+                            debug!(chunks = arr.len(), merged_count = reasoning_details_map.len(), "accumulated reasoning_details");
+                        }
                     }
                 },
                 StreamEvent::ReasoningDelta(text) => {
@@ -1567,7 +1593,7 @@ pub async fn run_agent_loop_streaming(
         // likely the actual answer (e.g. a search result table produced
         // before a `browser close` cleanup call).
         let (text_for_msg, is_actual_reasoning) = if !accumulated_reasoning.is_empty() {
-            (Some(accumulated_reasoning), true)
+            (Some(accumulated_reasoning.clone()), true)
         } else if !accumulated_text.is_empty() {
             last_answer_text.clone_from(&accumulated_text);
             (Some(accumulated_text), false)
@@ -1580,10 +1606,24 @@ pub async fn run_agent_loop_streaming(
         {
             cb(RunnerEvent::ThinkingText(text.clone()));
         }
+        let reasoning = if !reasoning_details_map.is_empty() {
+            let mut indices: Vec<usize> = reasoning_details_map.keys().cloned().collect();
+            indices.sort();
+            let merged_array: Vec<serde_json::Value> = indices
+                .into_iter()
+                .filter_map(|idx| reasoning_details_map.get(&idx).map(|obj| serde_json::Value::Object(obj.clone())))
+                .collect();
+            Some(Reasoning::Details(serde_json::Value::Array(merged_array)))
+        } else if !accumulated_reasoning.is_empty() {
+            Some(Reasoning::Content(accumulated_reasoning.clone()))
+        } else {
+            None
+        };
+        debug!(has_reasoning = reasoning.is_some(), "appending assistant message with reasoning");
         messages.push(ChatMessage::assistant_with_tools(
             text_for_msg,
             tool_calls.clone(),
-            None,
+            reasoning,
         ));
 
         // Execute tool calls concurrently.

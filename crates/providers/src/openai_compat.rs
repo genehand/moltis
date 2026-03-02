@@ -788,6 +788,13 @@ pub fn process_openai_sse_line(data: &str, state: &mut StreamingToolState) -> Ss
         events.push(StreamEvent::ReasoningDelta(reasoning_content.to_string()));
     }
 
+    // Handle reasoning_details from providers like Kimi
+    if let Some(reasoning_details) = delta["reasoning_details"].as_array()
+        && !reasoning_details.is_empty()
+    {
+        tracing::debug!(reasoning_details = ?reasoning_details, "captured reasoning_details from delta");
+    }
+
     // Handle tool calls
     if let Some(tcs) = delta["tool_calls"].as_array() {
         for tc in tcs {
