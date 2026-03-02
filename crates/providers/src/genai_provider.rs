@@ -106,6 +106,7 @@ impl LlmProvider for GenaiProvider {
         Ok(CompletionResponse {
             text,
             tool_calls: vec![],
+            reasoning: None,
             usage,
         })
     }

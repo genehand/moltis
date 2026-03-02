@@ -180,6 +180,7 @@ impl LlmProvider for AsyncOpenAiProvider {
         Ok(CompletionResponse {
             text,
             tool_calls: vec![],
+            reasoning: None,
             usage,
         })
     }

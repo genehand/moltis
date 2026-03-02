@@ -22,6 +22,7 @@ pub enum ChatMessage {
     Assistant {
         content: Option<String>,
         tool_calls: Vec<ToolCall>,
+        reasoning: Option<Reasoning>,
     },
     Tool {
         tool_call_id: String,
@@ -34,6 +35,14 @@ pub enum ChatMessage {
 pub enum UserContent {
     Text(String),
     Multimodal(Vec<ContentPart>),
+}
+
+/// Reasoning content from the assistant, can be either a simple string
+/// (Moonshot API) or structured details (Kimi through OpenAI-compatible APIs).
+#[derive(Debug, Clone)]
+pub enum Reasoning {
+    Content(String),
+    Details(serde_json::Value),
 }
 
 impl UserContent {
@@ -77,14 +86,20 @@ impl ChatMessage {
         Self::Assistant {
             content: Some(content.into()),
             tool_calls: vec![],
+            reasoning: None,
         }
     }
 
     /// Create an assistant message with tool calls (and optional text).
-    pub fn assistant_with_tools(content: Option<String>, tool_calls: Vec<ToolCall>) -> Self {
+    pub fn assistant_with_tools(
+        content: Option<String>,
+        tool_calls: Vec<ToolCall>,
+        reasoning: Option<Reasoning>,
+    ) -> Self {
         Self::Assistant {
             content,
             tool_calls,
+            reasoning,
         }
     }
 
@@ -132,12 +147,24 @@ impl ChatMessage {
             ChatMessage::Assistant {
                 content,
                 tool_calls,
+                reasoning,
             } => {
                 if tool_calls.is_empty() {
-                    serde_json::json!({
+                    let mut msg = serde_json::json!({
                         "role": "assistant",
                         "content": content.as_deref().unwrap_or(""),
-                    })
+                    });
+                    if let Some(r) = reasoning {
+                        match r {
+                            Reasoning::Content(rc) => {
+                                msg["reasoning_content"] = serde_json::Value::String(rc.clone());
+                            }
+                            Reasoning::Details(rd) => {
+                                msg["reasoning_details"] = rd.clone();
+                            }
+                        }
+                    }
+                    msg
                 } else {
                     let tc_json: Vec<serde_json::Value> = tool_calls
                         .iter()
@@ -158,6 +185,16 @@ impl ChatMessage {
                     });
                     if let Some(text) = content {
                         msg["content"] = serde_json::Value::String(text.clone());
+                    }
+                    if let Some(r) = reasoning {
+                        match r {
+                            Reasoning::Content(rc) => {
+                                msg["reasoning_content"] = serde_json::Value::String(rc.clone());
+                            }
+                            Reasoning::Details(rd) => {
+                                msg["reasoning_details"] = rd.clone();
+                            }
+                        }
                     }
                     msg
                 }
@@ -246,9 +283,19 @@ pub fn values_to_chat_messages(values: &[serde_json::Value]) -> Vec<ChatMessage>
                             .collect()
                     })
                     .unwrap_or_default();
+                let reasoning = val
+                    .get("reasoning_details")
+                    .cloned()
+                    .map(Reasoning::Details)
+                    .or_else(|| {
+                        val["reasoning_content"]
+                            .as_str()
+                            .map(|s| Reasoning::Content(s.to_string()))
+                    });
                 messages.push(ChatMessage::Assistant {
                     content,
                     tool_calls,
+                    reasoning,
                 });
             },
             "tool" => {
@@ -398,6 +445,7 @@ pub struct CompletionResponse {
     pub text: Option<String>,
     pub tool_calls: Vec<ToolCall>,
     pub usage: Usage,
+    pub reasoning: Option<Reasoning>,
 }
 
 #[derive(Debug, Clone)]
@@ -445,7 +493,7 @@ mod tests {
     fn assistant_message_text() {
         let msg = ChatMessage::assistant("Hi there");
         assert!(
-            matches!(msg, ChatMessage::Assistant { content: Some(t), tool_calls } if t == "Hi there" && tool_calls.is_empty())
+            matches!(msg, ChatMessage::Assistant { content: Some(t), tool_calls, .. } if t == "Hi there" && tool_calls.is_empty())
         );
     }
 
@@ -506,11 +554,15 @@ mod tests {
 
     #[test]
     fn to_openai_assistant_with_tools() {
-        let msg = ChatMessage::assistant_with_tools(Some("thinking".into()), vec![ToolCall {
-            id: "call_1".into(),
-            name: "exec".into(),
-            arguments: serde_json::json!({"cmd": "ls"}),
-        }]);
+        let msg = ChatMessage::assistant_with_tools(
+            Some("thinking".into()),
+            vec![ToolCall {
+                id: "call_1".into(),
+                name: "exec".into(),
+                arguments: serde_json::json!({"cmd": "ls"}),
+            }],
+            None,
+        );
         let val = msg.to_openai_value();
         assert_eq!(val["role"], "assistant");
         assert_eq!(val["content"], "thinking");
@@ -592,6 +644,7 @@ mod tests {
             ChatMessage::Assistant {
                 content,
                 tool_calls,
+                ..
             } => {
                 assert_eq!(content.as_deref(), Some("thinking"));
                 assert_eq!(tool_calls.len(), 1);

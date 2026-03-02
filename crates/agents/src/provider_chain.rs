@@ -395,6 +395,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("ok".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage {
                     input_tokens: 1,
                     output_tokens: 1,
@@ -696,6 +697,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("ok".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage {
                     input_tokens: 1,
                     output_tokens: 1,

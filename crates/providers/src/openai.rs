@@ -465,7 +465,7 @@ impl OpenAiProvider {
         self.provider_name.eq_ignore_ascii_case("moonshot")
             || self.base_url.contains("moonshot.ai")
             || self.base_url.contains("moonshot.cn")
-            || self.model.starts_with("kimi-")
+            //|| self.model.starts_with("kimi-")
     }
 
     fn requires_top_level_system_prompt(&self) -> bool {
@@ -554,18 +554,8 @@ impl OpenAiProvider {
                     .is_some_and(|calls| !calls.is_empty());
 
                 if is_assistant && has_tool_calls {
-                    let reasoning_content = value
-                        .get("content")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or(".")
-                        .to_string();
-
                     if value.get("content").is_none() {
                         value["content"] = serde_json::Value::String(String::new());
-                    }
-
-                    if value.get("reasoning_content").is_none() {
-                        value["reasoning_content"] = serde_json::Value::String(reasoning_content);
                     }
                 }
             }
@@ -1145,6 +1135,15 @@ impl LlmProvider for OpenAiProvider {
             }
         });
         let tool_calls = parse_tool_calls(message);
+        let reasoning = message
+            .get("reasoning_details")
+            .cloned()
+            .map(moltis_agents::model::Reasoning::Details)
+            .or_else(|| {
+                message["reasoning_content"]
+                    .as_str()
+                    .map(|s| moltis_agents::model::Reasoning::Content(s.to_string()))
+            });
 
         let usage = parse_openai_compat_usage_from_payload(&resp).unwrap_or_default();
 
@@ -1152,6 +1151,7 @@ impl LlmProvider for OpenAiProvider {
             text,
             tool_calls,
             usage,
+            reasoning,
         })
     }
 
@@ -1267,17 +1267,56 @@ mod tests {
             "https://api.moonshot.ai/v1".to_string(),
             "moonshot".to_string(),
         );
-        let messages = vec![ChatMessage::assistant_with_tools(None, vec![ToolCall {
-            id: "call_1".into(),
-            name: "exec".into(),
-            arguments: serde_json::json!({ "command": "uname -a" }),
-        }])];
+        // Message with reasoning_content (Moonshot API style)
+        let messages = vec![ChatMessage::assistant_with_tools(
+            None,
+            vec![ToolCall {
+                id: "call_1".into(),
+                name: "exec".into(),
+                arguments: serde_json::json!({ "command": "uname -a" }),
+            }],
+            Some(moltis_agents::model::Reasoning::Content(
+                "Thinking about the command".into(),
+            )),
+        )];
 
         let serialized = provider.serialize_messages_for_request(&messages);
         assert_eq!(serialized.len(), 1);
         assert_eq!(serialized[0]["role"], "assistant");
         assert_eq!(serialized[0]["content"], "");
-        assert_eq!(serialized[0]["reasoning_content"], "");
+        assert_eq!(serialized[0]["reasoning_content"], "Thinking about the command");
+    }
+
+    #[test]
+    fn moonshot_serialization_preserves_reasoning_details_when_present() {
+        let provider = OpenAiProvider::new_with_name(
+            Secret::new("test-key".to_string()),
+            "kimi-k2.5".to_string(),
+            "https://api.moonshot.ai/v1".to_string(),
+            "moonshot".to_string(),
+        );
+        // Message with reasoning_details (Kimi through OpenAI-compatible API style)
+        let reasoning_details = serde_json::json!([{
+            "format": "unknown",
+            "index": 0,
+            "type": "reasoning.text",
+            "text": "The user wants me to check my memory"
+        }]);
+        let messages = vec![ChatMessage::assistant_with_tools(
+            Some("Let me check that".into()),
+            vec![ToolCall {
+                id: "call_1".into(),
+                name: "exec".into(),
+                arguments: serde_json::json!({ "command": "uname -a" }),
+            }],
+            Some(moltis_agents::model::Reasoning::Details(reasoning_details)),
+        )];
+
+        let serialized = provider.serialize_messages_for_request(&messages);
+        assert_eq!(serialized.len(), 1);
+        assert_eq!(serialized[0]["role"], "assistant");
+        assert_eq!(serialized[0]["content"], "Let me check that");
+        assert!(serialized[0]["reasoning_details"].is_array());
     }
 
     #[test]
@@ -1291,7 +1330,7 @@ mod tests {
             id: "call_1".into(),
             name: "exec".into(),
             arguments: serde_json::json!({ "command": "uname -a" }),
-        }])];
+        }], None)];
 
         let serialized = provider.serialize_messages_for_request(&messages);
         assert_eq!(serialized.len(), 1);
@@ -1332,7 +1371,7 @@ mod tests {
                     name: "exec".to_string(),
                     arguments: serde_json::json!({ "command": "pwd" }),
                 },
-            ]),
+            ], None),
             ChatMessage::tool(long_id, "ok"),
         ];
 
@@ -1363,7 +1402,7 @@ mod tests {
                     name: "exec".to_string(),
                     arguments: serde_json::json!({ "command": "pwd" }),
                 },
-            ]),
+            ], None),
             ChatMessage::tool(short_id, "ok"),
         ];
 
@@ -1392,7 +1431,7 @@ mod tests {
                 id: "exec:0".into(),
                 name: "exec".into(),
                 arguments: serde_json::json!({ "command": "uname -a" }),
-            }]),
+            }], None),
             ChatMessage::tool("exec:0", "Linux host 6.0"),
         ];
 
@@ -1407,7 +1446,7 @@ mod tests {
             .expect("messages should be an array");
         assert_eq!(history[1]["role"], "assistant");
         assert_eq!(history[1]["content"], "");
-        assert_eq!(history[1]["reasoning_content"], "");
+        assert!(history[1].get("reasoning_content").is_none());
         assert!(history[1]["tool_calls"].is_array());
     }
 

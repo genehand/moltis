@@ -920,6 +920,7 @@ pub async fn run_agent_loop_with_context(
         messages.push(ChatMessage::assistant_with_tools(
             response.text.clone(),
             response.tool_calls.clone(),
+            response.reasoning.clone(),
         ));
 
         // Execute tool calls concurrently.
@@ -1582,6 +1583,7 @@ pub async fn run_agent_loop_streaming(
         messages.push(ChatMessage::assistant_with_tools(
             text_for_msg,
             tool_calls.clone(),
+            None,
         ));
 
         // Execute tool calls concurrently.
@@ -1895,6 +1897,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some(self.response_text.clone()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage {
                     input_tokens: 10,
                     output_tokens: 5,
@@ -1946,6 +1949,7 @@ mod tests {
                         name: "echo_tool".into(),
                         arguments: serde_json::json!({"text": "hi"}),
                     }],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 5,
@@ -1956,6 +1960,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("Done!".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 20,
                         output_tokens: 10,
@@ -2005,6 +2010,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("```tool_call\n{\"tool\": \"exec\", \"arguments\": {\"command\": \"echo hello\"}}\n```".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage { input_tokens: 10, output_tokens: 20, ..Default::default() },
                 })
             } else {
@@ -2026,6 +2032,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("The command output: hello".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 30,
                         output_tokens: 10,
@@ -2203,6 +2210,7 @@ mod tests {
                         name: "exec".into(),
                         arguments: serde_json::json!({"command": "echo hello"}),
                     }],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 5,
@@ -2227,6 +2235,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some(format!("The output was: {}", stdout.trim())),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 20,
                         output_tokens: 10,
@@ -2375,6 +2384,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("I'll summarize the command output for you.".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 10,
@@ -2388,6 +2398,7 @@ mod tests {
                         if let ChatMessage::Assistant {
                             content,
                             tool_calls,
+                            ..
                         } = m
                         {
                             if tool_calls.is_empty() {
@@ -2419,6 +2430,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("done".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 5,
@@ -2559,6 +2571,7 @@ mod tests {
                             .into(),
                     ),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 20,
@@ -2588,6 +2601,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("Process started for pwd".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 30,
                         output_tokens: 10,
@@ -2736,6 +2750,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: None,
                     tool_calls: self.tool_calls.clone(),
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 5,
@@ -2746,6 +2761,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("All done".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 20,
                         output_tokens: 10,
@@ -3189,6 +3205,7 @@ mod tests {
                         name: "screenshot_tool".into(),
                         arguments: serde_json::json!({}),
                     }],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 5,
@@ -3222,6 +3239,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("Screenshot processed successfully".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 20,
                         output_tokens: 10,
@@ -3481,6 +3499,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("fallback".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage::default(),
             })
         }
@@ -3626,6 +3645,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("fallback".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage::default(),
             })
         }
@@ -3661,6 +3681,7 @@ mod tests {
                         if let ChatMessage::Assistant {
                             content,
                             tool_calls,
+                            ..
                         } = m
                         {
                             if tool_calls.is_empty() {
@@ -3775,6 +3796,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("fallback".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage::default(),
             })
         }
@@ -3862,6 +3884,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("fallback".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage::default(),
             })
         }
@@ -3982,6 +4005,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("fallback".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage::default(),
             })
         }
@@ -4135,6 +4159,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("fallback".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage::default(),
             })
         }
@@ -4374,6 +4399,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("Recovered!".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage::default(),
                 })
             }
@@ -4427,6 +4453,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("Recovered from rate limit".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage::default(),
                 })
             }
