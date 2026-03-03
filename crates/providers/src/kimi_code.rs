@@ -272,6 +272,7 @@ impl LlmProvider for KimiCodeProvider {
         Ok(CompletionResponse {
             text,
             tool_calls,
+            reasoning: None,
             usage,
         })
     }
@@ -557,6 +558,7 @@ mod tests {
             Ok(CompletionResponse {
                 text,
                 tool_calls,
+                reasoning: None,
                 usage,
             })
         }

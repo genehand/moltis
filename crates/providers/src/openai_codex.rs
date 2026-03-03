@@ -229,6 +229,7 @@ impl OpenAiCodexProvider {
                     ChatMessage::Assistant {
                         content,
                         tool_calls,
+                        ..
                     } => {
                         if !tool_calls.is_empty() {
                             let mut items: Vec<serde_json::Value> = vec![];
@@ -750,6 +751,7 @@ impl LlmProvider for OpenAiCodexProvider {
         Ok(CompletionResponse {
             text,
             tool_calls,
+            reasoning: None,
             usage: Usage {
                 input_tokens,
                 output_tokens,
@@ -1091,11 +1093,15 @@ mod tests {
     #[test]
     fn convert_messages_tool_call_and_result() {
         let messages = vec![
-            ChatMessage::assistant_with_tools(None, vec![ToolCall {
-                id: "call_1".to_string(),
-                name: "get_time".to_string(),
-                arguments: serde_json::json!({}),
-            }]),
+            ChatMessage::assistant_with_tools(
+                None,
+                vec![ToolCall {
+                    id: "call_1".to_string(),
+                    name: "get_time".to_string(),
+                    arguments: serde_json::json!({}),
+                }],
+                None,
+            ),
             ChatMessage::tool("call_1", "12:00"),
         ];
         let converted = OpenAiCodexProvider::convert_messages(&messages);
@@ -1220,11 +1226,15 @@ mod tests {
         .to_string();
         let messages = vec![
             ChatMessage::user("Take a screenshot"),
-            ChatMessage::assistant_with_tools(None, vec![ToolCall {
-                id: "call_screenshot".to_string(),
-                name: "browser_screenshot".to_string(),
-                arguments: serde_json::json!({}),
-            }]),
+            ChatMessage::assistant_with_tools(
+                None,
+                vec![ToolCall {
+                    id: "call_screenshot".to_string(),
+                    name: "browser_screenshot".to_string(),
+                    arguments: serde_json::json!({}),
+                }],
+                None,
+            ),
             ChatMessage::tool("call_screenshot", &tool_output),
             ChatMessage::assistant("Here is the screenshot."),
         ];

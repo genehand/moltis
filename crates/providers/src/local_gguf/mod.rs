@@ -460,6 +460,7 @@ impl LlmProvider for LocalGgufProvider {
         Ok(CompletionResponse {
             text: display_text,
             tool_calls,
+            reasoning: None,
             usage: Usage {
                 input_tokens,
                 output_tokens,

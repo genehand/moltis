@@ -255,6 +255,7 @@ mod tests {
                             "content": "# Memories\n\nUser prefers Rust over Python."
                         }),
                     }],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 100,
                         output_tokens: 50,
@@ -265,6 +266,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("NO_REPLY".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 50,
                         output_tokens: 5,

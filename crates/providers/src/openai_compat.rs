@@ -341,6 +341,7 @@ pub fn to_responses_input(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
             ChatMessage::Assistant {
                 content,
                 tool_calls,
+                ..
             } => {
                 if !tool_calls.is_empty() {
                     let mut items: Vec<serde_json::Value> = tool_calls
@@ -776,6 +777,15 @@ pub fn process_openai_sse_line(data: &str, state: &mut StreamingToolState) -> Ss
         && !content.is_empty()
     {
         process_content_think_tags(content, state, &mut events);
+    }
+
+    // Handle Kimi-style structured reasoning details.
+    if let Some(reasoning_details) = delta["reasoning_details"].as_array()
+        && !reasoning_details.is_empty()
+    {
+        events.push(StreamEvent::ReasoningDetailsDelta(
+            serde_json::Value::Array(reasoning_details.clone()),
+        ));
     }
 
     // Some OpenAI-compatible backends stream planning text in

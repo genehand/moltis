@@ -69,6 +69,7 @@ impl LlmProvider for MockLlmProvider {
             None => Ok(CompletionResponse {
                 text: Some("Hello from mock provider".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage {
                     input_tokens: 10,
                     output_tokens: 5,

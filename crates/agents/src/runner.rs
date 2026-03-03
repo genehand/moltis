@@ -12,7 +12,8 @@ use moltis_common::hooks::{HookAction, HookPayload, HookRegistry};
 
 use crate::{
     model::{
-        ChatMessage, CompletionResponse, LlmProvider, StreamEvent, ToolCall, Usage, UserContent,
+        ChatMessage, CompletionResponse, LlmProvider, Reasoning, StreamEvent, ToolCall, Usage,
+        UserContent,
     },
     response_sanitizer::{clean_response, recover_tool_calls_from_content},
     tool_parsing::{
@@ -269,6 +270,7 @@ pub enum RunnerEvent {
     /// LLM returned reasoning/status text alongside tool calls.
     ThinkingText(String),
     TextDelta(String),
+    ReasoningDetails(serde_json::Value),
     Iteration(usize),
     SubAgentStart {
         task: String,
@@ -920,6 +922,7 @@ pub async fn run_agent_loop_with_context(
         messages.push(ChatMessage::assistant_with_tools(
             response.text.clone(),
             response.tool_calls.clone(),
+            response.reasoning.clone(),
         ));
 
         // Execute tool calls concurrently.
@@ -1097,6 +1100,47 @@ pub async fn run_agent_loop_with_context(
     }
 }
 
+/// Accumulate Kimi-style `reasoning_details` into the provided map.
+fn accumulate_reasoning_details(
+    details_map: &mut std::collections::HashMap<usize, serde_json::Map<String, serde_json::Value>>,
+    delta_details: &serde_json::Value,
+) {
+    let Some(arr) = delta_details.as_array() else {
+        return;
+    };
+    for item in arr {
+        let Some(obj) = item.as_object() else {
+            continue;
+        };
+        let Some(index) = obj
+            .get("index")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+        else {
+            continue;
+        };
+
+        let entry = details_map.entry(index).or_insert_with(|| {
+            let mut new_obj = serde_json::Map::new();
+            // Copy non-text fields from first occurrence
+            for (key, value) in obj.iter() {
+                if key != "text" {
+                    new_obj.insert(key.clone(), value.clone());
+                }
+            }
+            new_obj
+        });
+
+        if let Some(text) = obj.get("text").and_then(|v| v.as_str()) {
+            let current = entry.get("text").and_then(|v| v.as_str()).unwrap_or("");
+            entry.insert(
+                "text".to_string(),
+                serde_json::Value::String(current.to_string() + text),
+            );
+        }
+    }
+}
+
 /// Convenience wrapper matching the old stub signature.
 pub async fn run_agent(_agent_id: &str, _session_key: &str, _message: &str) -> Result<String> {
     bail!("run_agent requires a configured provider and tool registry; use run_agent_loop instead")
@@ -1247,6 +1291,10 @@ pub async fn run_agent_loop_streaming(
         // Accumulate answer text, reasoning text, and tool calls from the stream.
         let mut accumulated_text = String::new();
         let mut accumulated_reasoning = String::new();
+        let mut reasoning_details_map: std::collections::HashMap<
+            usize,
+            serde_json::Map<String, serde_json::Value>,
+        > = std::collections::HashMap::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
         // Map streaming index → accumulated JSON args string.
         let mut tool_call_args: std::collections::HashMap<usize, String> =
@@ -1271,7 +1319,26 @@ pub async fn run_agent_loop_streaming(
                 },
                 StreamEvent::ProviderRaw(raw) => {
                     if raw_llm_responses.len() < 256 {
-                        raw_llm_responses.push(raw);
+                        raw_llm_responses.push(raw.clone());
+                    }
+                },
+                StreamEvent::ReasoningDetailsDelta(details) => {
+                    accumulate_reasoning_details(&mut reasoning_details_map, &details);
+                    if let Some(cb) = on_event {
+                        let mut indices: Vec<usize> =
+                            reasoning_details_map.keys().cloned().collect();
+                        indices.sort();
+                        let merged_array: Vec<serde_json::Value> = indices
+                            .into_iter()
+                            .filter_map(|idx| {
+                                reasoning_details_map
+                                    .get(&idx)
+                                    .map(|obj| serde_json::Value::Object(obj.clone()))
+                            })
+                            .collect();
+                        cb(RunnerEvent::ReasoningDetails(serde_json::Value::Array(
+                            merged_array,
+                        )));
                     }
                 },
                 StreamEvent::ReasoningDelta(text) => {
@@ -1566,7 +1633,7 @@ pub async fn run_agent_loop_streaming(
         // likely the actual answer (e.g. a search result table produced
         // before a `browser close` cleanup call).
         let (text_for_msg, is_actual_reasoning) = if !accumulated_reasoning.is_empty() {
-            (Some(accumulated_reasoning), true)
+            (Some(accumulated_reasoning.clone()), true)
         } else if !accumulated_text.is_empty() {
             last_answer_text.clone_from(&accumulated_text);
             (Some(accumulated_text), false)
@@ -1579,9 +1646,27 @@ pub async fn run_agent_loop_streaming(
         {
             cb(RunnerEvent::ThinkingText(text.clone()));
         }
+        let reasoning = if !reasoning_details_map.is_empty() {
+            let mut indices: Vec<usize> = reasoning_details_map.keys().cloned().collect();
+            indices.sort();
+            let merged_array: Vec<serde_json::Value> = indices
+                .into_iter()
+                .filter_map(|idx| {
+                    reasoning_details_map
+                        .get(&idx)
+                        .map(|obj| serde_json::Value::Object(obj.clone()))
+                })
+                .collect();
+            Some(Reasoning::Details(serde_json::Value::Array(merged_array)))
+        } else if !accumulated_reasoning.is_empty() {
+            Some(Reasoning::Content(accumulated_reasoning.clone()))
+        } else {
+            None
+        };
         messages.push(ChatMessage::assistant_with_tools(
             text_for_msg,
             tool_calls.clone(),
+            reasoning,
         ));
 
         // Execute tool calls concurrently.
@@ -1895,6 +1980,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some(self.response_text.clone()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage {
                     input_tokens: 10,
                     output_tokens: 5,
@@ -1946,6 +2032,7 @@ mod tests {
                         name: "echo_tool".into(),
                         arguments: serde_json::json!({"text": "hi"}),
                     }],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 5,
@@ -1956,6 +2043,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("Done!".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 20,
                         output_tokens: 10,
@@ -2005,6 +2093,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("```tool_call\n{\"tool\": \"exec\", \"arguments\": {\"command\": \"echo hello\"}}\n```".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage { input_tokens: 10, output_tokens: 20, ..Default::default() },
                 })
             } else {
@@ -2026,6 +2115,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("The command output: hello".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 30,
                         output_tokens: 10,
@@ -2203,6 +2293,7 @@ mod tests {
                         name: "exec".into(),
                         arguments: serde_json::json!({"command": "echo hello"}),
                     }],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 5,
@@ -2227,6 +2318,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some(format!("The output was: {}", stdout.trim())),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 20,
                         output_tokens: 10,
@@ -2375,6 +2467,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("I'll summarize the command output for you.".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 10,
@@ -2388,6 +2481,7 @@ mod tests {
                         if let ChatMessage::Assistant {
                             content,
                             tool_calls,
+                            ..
                         } = m
                         {
                             if tool_calls.is_empty() {
@@ -2419,6 +2513,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("done".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 5,
@@ -2559,6 +2654,7 @@ mod tests {
                             .into(),
                     ),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 20,
@@ -2588,6 +2684,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("Process started for pwd".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 30,
                         output_tokens: 10,
@@ -2736,6 +2833,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: None,
                     tool_calls: self.tool_calls.clone(),
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 5,
@@ -2746,6 +2844,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("All done".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 20,
                         output_tokens: 10,
@@ -3189,6 +3288,7 @@ mod tests {
                         name: "screenshot_tool".into(),
                         arguments: serde_json::json!({}),
                     }],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 10,
                         output_tokens: 5,
@@ -3222,6 +3322,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("Screenshot processed successfully".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage {
                         input_tokens: 20,
                         output_tokens: 10,
@@ -3481,6 +3582,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("fallback".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage::default(),
             })
         }
@@ -3626,6 +3728,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("fallback".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage::default(),
             })
         }
@@ -3661,6 +3764,7 @@ mod tests {
                         if let ChatMessage::Assistant {
                             content,
                             tool_calls,
+                            ..
                         } = m
                         {
                             if tool_calls.is_empty() {
@@ -3775,6 +3879,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("fallback".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage::default(),
             })
         }
@@ -3862,6 +3967,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("fallback".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage::default(),
             })
         }
@@ -3982,6 +4088,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("fallback".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage::default(),
             })
         }
@@ -4135,6 +4242,7 @@ mod tests {
             Ok(CompletionResponse {
                 text: Some("fallback".into()),
                 tool_calls: vec![],
+                reasoning: None,
                 usage: Usage::default(),
             })
         }
@@ -4374,6 +4482,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("Recovered!".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage::default(),
                 })
             }
@@ -4427,6 +4536,7 @@ mod tests {
                 Ok(CompletionResponse {
                     text: Some("Recovered from rate limit".into()),
                     tool_calls: vec![],
+                    reasoning: None,
                     usage: Usage::default(),
                 })
             }
