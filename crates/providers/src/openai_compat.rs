@@ -779,6 +779,13 @@ pub fn process_openai_sse_line(data: &str, state: &mut StreamingToolState) -> Ss
         process_content_think_tags(content, state, &mut events);
     }
 
+    // Handle Kimi-style structured reasoning details.
+    if let Some(reasoning_details) = delta["reasoning_details"].as_array()
+        && !reasoning_details.is_empty()
+    {
+        events.push(StreamEvent::ReasoningDetailsDelta(serde_json::Value::Array(reasoning_details.clone())));
+    }
+
     // Some OpenAI-compatible backends stream planning text in
     // `reasoning_content`. Surface it separately so UI can show it in the
     // thinking area without polluting final assistant text.

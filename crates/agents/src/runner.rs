@@ -269,6 +269,7 @@ pub enum RunnerEvent {
     /// LLM returned reasoning/status text alongside tool calls.
     ThinkingText(String),
     TextDelta(String),
+    ReasoningDetails(serde_json::Value),
     Iteration(usize),
     SubAgentStart {
         task: String,
@@ -1098,6 +1099,50 @@ pub async fn run_agent_loop_with_context(
     }
 }
 
+/// Accumulate Kimi-style `reasoning_details` into the provided map.
+fn accumulate_reasoning_details(
+    details_map: &mut std::collections::HashMap<usize, serde_json::Map<String, serde_json::Value>>,
+    delta_details: &serde_json::Value,
+) {
+    let Some(arr) = delta_details.as_array() else {
+        return;
+    };
+    for item in arr {
+        let Some(obj) = item.as_object() else {
+            continue;
+        };
+        let Some(index) = obj
+            .get("index")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+        else {
+            continue;
+        };
+
+        let entry = details_map.entry(index).or_insert_with(|| {
+            let mut new_obj = serde_json::Map::new();
+            // Copy non-text fields from first occurrence
+            for (key, value) in obj.iter() {
+                if key != "text" {
+                    new_obj.insert(key.clone(), value.clone());
+                }
+            }
+            new_obj
+        });
+
+        if let Some(text) = obj.get("text").and_then(|v| v.as_str()) {
+            let current = entry
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            entry.insert(
+                "text".to_string(),
+                serde_json::Value::String(current.to_string() + text),
+            );
+        }
+    }
+}
+
 /// Convenience wrapper matching the old stub signature.
 pub async fn run_agent(_agent_id: &str, _session_key: &str, _message: &str) -> Result<String> {
     bail!("run_agent requires a configured provider and tool registry; use run_agent_loop instead")
@@ -1275,29 +1320,17 @@ pub async fn run_agent_loop_streaming(
                     if raw_llm_responses.len() < 256 {
                         raw_llm_responses.push(raw.clone());
                     }
-                    if let Some(delta_details) = raw["choices"][0]["delta"].get("reasoning_details") {
-                        if let Some(arr) = delta_details.as_array() {
-                            for item in arr {
-                                if let Some(obj) = item.as_object() {
-                                    if let Some(index) = obj.get("index").and_then(|v| v.as_u64()).map(|v| v as usize) {
-                                        let entry = reasoning_details_map.entry(index).or_insert_with(|| {
-                                            let mut new_obj = serde_json::Map::new();
-                                            // Copy non-text fields from first occurrence
-                                            for (key, value) in obj.iter() {
-                                                if key != "text" {
-                                                    new_obj.insert(key.clone(), value.clone());
-                                                }
-                                            }
-                                            new_obj
-                                        });
-                                        if let Some(text) = obj.get("text").and_then(|v| v.as_str()) {
-                                            let current = entry.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                                            entry.insert("text".to_string(), serde_json::Value::String(current.to_string() + text));
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                },
+                StreamEvent::ReasoningDetailsDelta(details) => {
+                    accumulate_reasoning_details(&mut reasoning_details_map, &details);
+                    if let Some(cb) = on_event {
+                        let mut indices: Vec<usize> = reasoning_details_map.keys().cloned().collect();
+                        indices.sort();
+                        let merged_array: Vec<serde_json::Value> = indices
+                            .into_iter()
+                            .filter_map(|idx| reasoning_details_map.get(&idx).map(|obj| serde_json::Value::Object(obj.clone())))
+                            .collect();
+                        cb(RunnerEvent::ReasoningDetails(serde_json::Value::Array(merged_array)));
                     }
                 },
                 StreamEvent::ReasoningDelta(text) => {

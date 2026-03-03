@@ -335,6 +335,8 @@ pub enum StreamEvent {
     ProviderRaw(serde_json::Value),
     /// Reasoning/planning text delta (not user-visible final answer text).
     ReasoningDelta(String),
+    /// Structured reasoning details (e.g. Kimi reasoning_details array).
+    ReasoningDetailsDelta(serde_json::Value),
     /// A tool call has started (content_block_start with tool_use).
     ToolCallStart {
         /// Tool call ID from the provider.

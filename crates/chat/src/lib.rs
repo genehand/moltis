@@ -4072,7 +4072,8 @@ impl ChatService for LiveChatService {
                 | StreamEvent::ProviderRaw(_)
                 // Ignore provider reasoning blocks; summary body should only
                 // include final answer text.
-                | StreamEvent::ReasoningDelta(_) => {},
+                | StreamEvent::ReasoningDelta(_)
+                | StreamEvent::ReasoningDetailsDelta(_) => {},
             }
         }
 
@@ -6024,6 +6025,16 @@ async fn run_with_tools(
                         "seq": seq,
                     })
                 },
+                RunnerEvent::ReasoningDetails(details) => {
+                    latest_reasoning = serde_json::to_string(&details).unwrap_or_default();
+                    serde_json::json!({
+                        "runId": run_id,
+                        "sessionKey": sk,
+                        "state": "thinking_details",
+                        "details": details,
+                        "seq": seq,
+                    })
+                },
                 RunnerEvent::Iteration(n) => serde_json::json!({
                     "runId": run_id,
                     "sessionKey": sk,
@@ -6442,7 +6453,8 @@ async fn compact_session(
             | StreamEvent::ProviderRaw(_)
             // Ignore provider reasoning blocks; summary body should only
             // include final answer text.
-            | StreamEvent::ReasoningDelta(_) => {},
+            | StreamEvent::ReasoningDelta(_)
+            | StreamEvent::ReasoningDetailsDelta(_) => {},
         }
     }
 
@@ -6910,7 +6922,8 @@ async fn run_streaming(
                 // Tool events not expected in stream-only mode.
                 StreamEvent::ToolCallStart { .. }
                 | StreamEvent::ToolCallArgumentsDelta { .. }
-                | StreamEvent::ToolCallComplete { .. } => {},
+                | StreamEvent::ToolCallComplete { .. }
+                | StreamEvent::ReasoningDetailsDelta(_) => {},
             }
         }
 
