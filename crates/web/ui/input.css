@@ -1300,6 +1300,48 @@
     text-align: right;
   }
 
+  /* Message truncation and "More" button for long assistant responses */
+  .msg-content-truncated {
+    max-height: 300px;
+    overflow: hidden;
+    position: relative;
+    mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
+  }
+  .msg-content-truncated.msg-content-expanded {
+    max-height: none;
+    overflow: visible;
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+  .msg-more-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 8px;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--accent);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .msg-more-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-strong);
+  }
+  .msg-more-btn::before {
+    content: "▼";
+    font-size: 0.6rem;
+    transition: transform 0.2s;
+  }
+  .msg-more-btn.expanded::before {
+    transform: rotate(180deg);
+  }
+
   /* Cron page */
   .cron-status-bar {
     font-size: 0.8rem;

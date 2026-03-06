@@ -356,3 +356,80 @@ export function updateTokenBar() {
 	}
 	bar.textContent = text;
 }
+
+// Threshold for showing "More" button (characters)
+var TRUNCATION_THRESHOLD = 800;
+
+/**
+ * Apply truncation to long assistant messages with a "More" button.
+ * @param {HTMLElement} msgEl - The message element
+ * @param {string} content - The text content (for length checking)
+ */
+function shouldSkipWrapping(node) {
+	// Skip non-element nodes (like text nodes) if they have no text content
+	if (node.nodeType !== Node.ELEMENT_NODE) {
+		return !node.textContent?.trim();
+	}
+	// Skip these elements - they should not be wrapped
+	var skipClasses = ["msg-reasoning", "msg-model-footer", "msg-more-btn", "msg-content-wrapper", "audio-player"];
+	if (skipClasses.some((cls) => node.classList?.contains(cls))) return true;
+	// Skip audio elements
+	if (node.tagName === "AUDIO") return true;
+	return false;
+}
+
+export function applyMessageTruncation(msgEl, content) {
+	if (!msgEl || !content || content.length < TRUNCATION_THRESHOLD) return;
+	if (!msgEl.classList.contains("assistant")) return;
+
+	// Find or create the content wrapper
+	var contentWrapper = msgEl.querySelector(".msg-content-wrapper");
+	if (!contentWrapper) {
+		// Collect children that should be wrapped
+		var childrenToWrap = [];
+		for (var child of msgEl.childNodes) {
+			if (shouldSkipWrapping(child)) break;
+			childrenToWrap.push(child);
+		}
+
+		// Only create wrapper if we have content to wrap
+		if (childrenToWrap.length === 0) return;
+
+		contentWrapper = document.createElement("div");
+		contentWrapper.className = "msg-content-wrapper msg-content-truncated";
+
+		// Move children into wrapper
+		for (var child of childrenToWrap) {
+			contentWrapper.appendChild(child);
+		}
+
+		// Insert wrapper at the beginning of the message
+		msgEl.insertBefore(contentWrapper, msgEl.firstChild);
+	}
+
+	// Add the "More" button if not already present
+	if (!msgEl.querySelector(".msg-more-btn")) {
+		var moreBtn = document.createElement("button");
+		moreBtn.className = "msg-more-btn";
+		moreBtn.textContent = "More";
+		moreBtn.addEventListener("click", function () {
+			var isExpanded = contentWrapper.classList.contains("msg-content-expanded");
+			if (isExpanded) {
+				contentWrapper.classList.remove("msg-content-expanded");
+				moreBtn.classList.remove("expanded");
+				moreBtn.textContent = "More";
+			} else {
+				contentWrapper.classList.add("msg-content-expanded");
+				moreBtn.classList.add("expanded");
+				moreBtn.textContent = "Less";
+			}
+		});
+		// Insert before the footer if present, otherwise at the end
+		var footer = msgEl.querySelector(".msg-model-footer");
+		if (footer) {
+			msgEl.insertBefore(moreBtn, footer);
+		} else {
+			msgEl.appendChild(moreBtn);
+		}
+	}
+}
