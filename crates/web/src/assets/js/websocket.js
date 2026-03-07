@@ -3,6 +3,7 @@
 import {
 	appendChannelFooter,
 	appendReasoningDisclosure,
+	applyMessageTruncation,
 	chatAddErrorCard,
 	chatAddErrorMsg,
 	chatAddMsg,
@@ -631,6 +632,8 @@ function handleChatFinal(p, isActive, isChatPage, eventSession) {
 			appendReasoningDisclosure(msgEl, p.reasoning);
 		}
 		appendFinalFooter(msgEl, p, eventSession);
+		// Apply truncation to long assistant messages
+		applyMessageTruncation(msgEl, p.text || "");
 		S.chatMsgBox.scrollTop = S.chatMsgBox.scrollHeight;
 	} else {
 		var resolvedEl = resolveFinalMessageEl(p);
@@ -670,6 +673,11 @@ function handleChatFinal(p, isActive, isChatPage, eventSession) {
 				if (last && !last.classList.contains("user")) target = last;
 			}
 			appendFinalFooter(target, p, eventSession);
+		}
+
+		// Apply truncation to long assistant messages
+		if (resolvedEl) {
+			applyMessageTruncation(resolvedEl, p.text || "");
 		}
 	}
 	if (p.inputTokens || p.outputTokens) {

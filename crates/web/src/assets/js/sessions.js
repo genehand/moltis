@@ -3,6 +3,7 @@
 import {
 	appendChannelFooter,
 	appendReasoningDisclosure,
+	applyMessageTruncation,
 	chatAddMsg,
 	chatAddMsgWithImages,
 	highlightAndScroll,
@@ -749,6 +750,10 @@ function renderHistoryAssistantMessage(msg) {
 		S.setSessionCurrentInputTokens(msg.requestInputTokens || 0);
 	} else if (msg.inputTokens || msg.outputTokens) {
 		S.setSessionCurrentInputTokens(msg.inputTokens || 0);
+	}
+	// Apply truncation to long assistant messages in history
+	if (el) {
+		applyMessageTruncation(el, msg.content || "");
 	}
 	return el;
 }
