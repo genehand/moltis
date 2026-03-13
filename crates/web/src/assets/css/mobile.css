@@ -666,6 +666,6 @@ html.pwa-standalone header {
   }
 
   header {
-    padding-top: calc(8px + var(--safe-top));
+    padding-top: 8px;
   }
 }
