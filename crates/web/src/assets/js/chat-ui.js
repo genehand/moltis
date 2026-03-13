@@ -12,6 +12,12 @@ function clearChatEmptyState() {
 	S.chatMsgBox.classList.remove("chat-messages-empty");
 }
 
+export const chatAddMsg = (...args) => M.chatAddMsg?.(...args);
+export const chatAddMsgWithImages = (...args) => M.chatAddMsgWithImages?.(...args);
+export const updateTokenBar = (...args) => M.updateTokenBar?.(...args);
+export const renderApprovalCard = (...args) => M.renderApprovalCard?.(...args);
+export const updateCommandInputUI = (...args) => M.updateCommandInputUI?.(...args);
+export const smartScrollToBottom = (...args) => M.smartScrollToBottom?.(...args);
 // Scroll chat to bottom and keep it pinned until layout settles.
 // Uses a ResizeObserver to catch any late layout shifts (sidebar re-render,
 // font loading, async style recalc) and re-scrolls until stable.
@@ -355,4 +361,96 @@ export function updateTokenBar() {
 		text += " \u00b7 /sh mode";
 	}
 	bar.textContent = text;
+}
+
+// Threshold for showing "More" button (characters)
+var TRUNCATION_THRESHOLD = 400;
+
+/**
+ * Check if a node should be skipped when wrapping content.
+ * @param {Node} node
+ * @returns {boolean}
+ */
+function shouldSkipWrapping(node) {
+	// Skip non-element nodes (like text nodes) if they have no text content
+	if (node.nodeType !== Node.ELEMENT_NODE) {
+		return !node.textContent?.trim();
+	}
+	// Skip these elements - they should not be wrapped
+	var skipClasses = ["msg-reasoning", "msg-model-footer", "msg-more-btn", "msg-content-wrapper", "audio-player"];
+	if (skipClasses.some((cls) => node.classList?.contains(cls))) return true;
+	// Skip audio elements
+	if (node.tagName === "AUDIO") return true;
+	return false;
+}
+
+export function applyMessageTruncation(msgEl, content) {
+	if (!(msgEl && content) || content.length < TRUNCATION_THRESHOLD) return;
+	if (!msgEl.classList.contains("assistant")) return;
+
+	// Find or create the content wrapper
+	var contentWrapper = msgEl.querySelector(".msg-content-wrapper");
+	if (!contentWrapper) {
+		// Collect children that should be wrapped
+		var childrenToWrap = [];
+		for (var child of msgEl.childNodes) {
+			if (shouldSkipWrapping(child)) {
+				// Don't break on empty text nodes - just skip them
+				if (child.nodeType !== Node.ELEMENT_NODE && !child.textContent?.trim()) {
+					continue;
+				}
+				break;
+			}
+			childrenToWrap.push(child);
+		}
+
+		// Only create wrapper if we have content to wrap
+		if (childrenToWrap.length === 0) return;
+
+		contentWrapper = document.createElement("div");
+		contentWrapper.className = "msg-content-wrapper msg-content-truncated";
+
+		// Move children into wrapper
+		for (var wrappedChild of childrenToWrap) {
+			contentWrapper.appendChild(wrappedChild);
+		}
+
+		// Insert wrapper at the beginning of the message
+		msgEl.insertBefore(contentWrapper, msgEl.firstChild);
+
+		// Remove all empty whitespace text nodes from the message
+		// (they show as empty space due to white-space: pre-wrap on .msg)
+		for (var i = msgEl.childNodes.length - 1; i >= 0; i--) {
+			var node = msgEl.childNodes[i];
+			if (node.nodeType === Node.TEXT_NODE && !node.textContent?.trim()) {
+				node.remove();
+			}
+		}
+	}
+
+	// Add the "More" button if not already present
+	if (!msgEl.querySelector(".msg-more-btn")) {
+		var moreBtn = document.createElement("button");
+		moreBtn.className = "msg-more-btn";
+		moreBtn.textContent = "More";
+		moreBtn.addEventListener("click", () => {
+			var isExpanded = contentWrapper.classList.contains("msg-content-expanded");
+			if (isExpanded) {
+				contentWrapper.classList.remove("msg-content-expanded");
+				moreBtn.classList.remove("expanded");
+				moreBtn.textContent = "More";
+			} else {
+				contentWrapper.classList.add("msg-content-expanded");
+				moreBtn.classList.add("expanded");
+				moreBtn.textContent = "Less";
+			}
+		});
+		// Insert before the footer if present, otherwise at the end
+		var footer = msgEl.querySelector(".msg-model-footer");
+		if (footer) {
+			msgEl.insertBefore(moreBtn, footer);
+		} else {
+			msgEl.appendChild(moreBtn);
+		}
+	}
 }
