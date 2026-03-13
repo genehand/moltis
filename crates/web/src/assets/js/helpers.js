@@ -177,6 +177,35 @@ export function renderMarkdown(raw) {
 	s = renderTables(s);
 	s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
 	s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+	// Headers (h1-h6)
+	s = s.replace(/^###### (.+)$/gm, "<h6>$1</h6>");
+	s = s.replace(/^##### (.+)$/gm, "<h5>$1</h5>");
+	s = s.replace(/^#### (.+)$/gm, "<h4>$1</h4>");
+	s = s.replace(/^### (.+)$/gm, "<h3>$1</h3>");
+	s = s.replace(/^## (.+)$/gm, "<h2>$1</h2>");
+	s = s.replace(/^# (.+)$/gm, "<h1>$1</h1>");
+	// Unordered lists (- or *)
+	s = s.replace(/^([ \t]*[-*] .+(?:\n[ \t]*[-*] .+)*)/gm, (match) => {
+		var items = match.trim().split(/\n/);
+		var listItems = items
+			.map((line) => {
+				var content = line.replace(/^[ \t]*[-*] /, "");
+				return `<li>${content}</li>`;
+			})
+			.join("");
+		return `<ul>${listItems}</ul>`;
+	});
+	// Ordered lists
+	s = s.replace(/^([ \t]*\d+\. .+(?:\n[ \t]*\d+\. .+)*)/gm, (match) => {
+		var items = match.trim().split(/\n/);
+		var listItems = items
+			.map((line) => {
+				var content = line.replace(/^[ \t]*\d+\. /, "");
+				return `<li>${content}</li>`;
+			})
+			.join("");
+		return `<ol>${listItems}</ol>`;
+	});
 	s = s.replace(/@@MOLTIS_CODE_BLOCK_(\d+)@@/g, (_, idx) => {
 		var block = codeBlocks[Number(idx)];
 		if (!block) return "";
